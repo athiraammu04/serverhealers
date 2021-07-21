@@ -1,0 +1,70 @@
+---
+- name: "new key pair"
+  ec2_key:
+    aws_access_key: "{{ access_key }}"
+    aws_secret_key: "{{ secret_key }}"
+    region: "{{ region }}"
+    name: "{{ key }}"
+    state: present
+  register: keypair
+
+- name: "Saving key pair"
+  when: keypair.changed == true
+  copy:
+    content: "{{ keypair.key.private_key }}"
+    dest: "{{ key }}.pem"
+    mode: 0400
+
+- name: "Creating Secutiry Group"
+  ec2_group:
+    name: "{{ security }}"
+    description: "Created By Ansible"
+    aws_access_key: "{{ access_key }}"
+    aws_secret_key: "{{ secret_key }}"
+    region: "{{ region }}"
+    rules:
+      - proto: tcp
+        from_port: 80
+        to_port: 80
+        cidr_ip: 0.0.0.0/0
+
+      - proto: tcp
+        from_port: 22
+        to_port: 22
+        cidr_ip: 0.0.0.0/0
+
+  register: sgStatus
+
+- name: "Ec2 creation"
+  ec2:
+    aws_access_key: "{{ access_key }}"
+    aws_secret_key: "{{ secret_key }}"
+    region: "{{ region }}"
+    instance_type: t2.micro
+    key_name: "{{ key }}"
+    image: ami-0dc2d3e4c0f9ebd18
+    group_id: 
+      - "{{ sgStatus.group_id }}"
+    vpc_subnet_id: subnet-bfb780f2
+    wait: yes
+    assign_public_ip: yes
+    instance_tags:
+      Name: "awsec2"
+    count_tag:
+      Name: "awsec2" 
+    exact_count: 2
+            
+  register: output
+        
+- name: "Dynamic Inventory Creation"
+  add_host:                 
+    name: "{{ item.public_ip }}"
+    groups: "instances"
+    ansible_host: "{{ item.public_ip }}"
+    ansible_port: 22
+    ansible_user: "ec2-user"
+    ansible_ssh_private_key_file: "{{ key }}.pem"
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no"
+  with_items:
+    - "{{  output.tagged_instances }}"  
+
